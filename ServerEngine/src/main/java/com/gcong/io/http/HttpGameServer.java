@@ -40,6 +40,8 @@ public class HttpGameServer extends HttpServlet {
 		
 		try{
 			dispatch.handle(packet, session);
+			
+			
 		} catch(Throwable e) {
 			//异常处理
 			//给客户端返回处理后的消息包

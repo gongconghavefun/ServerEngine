@@ -22,7 +22,8 @@ public class HttpHandlerDispatchManager {
 	public static boolean register(String id, int opcode, HttpHandler handler) {
 		HttpHandlerDispatch dispatch = get(id);
 		if(null == dispatch) {
-			return false;
+			dispatch = new HttpHandlerDispatch(id);
+			add(dispatch);
 		}
 		dispatch.register(opcode, handler);
 		return true;
@@ -31,9 +32,10 @@ public class HttpHandlerDispatchManager {
 	public static boolean register(String id, int[] opcodes, HttpHandler handler) {
 		HttpHandlerDispatch dispatch = get(id);
 		if(null == dispatch) {
-			return false;
+			dispatch = new HttpHandlerDispatch(id);
+			add(dispatch);
 		}
-		dispatch.unRegister(opcodes);
+		dispatch.register(opcodes, handler);
 		return true;
 	}
 	
