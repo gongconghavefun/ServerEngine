@@ -9,7 +9,9 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import com.gcong.annotation.OP;
+import com.gcong.annotation.OPEvent;
 import com.gcong.annotation.OPHandler;
+import com.gcong.event.EventListener;
 import com.gcong.io.http.HSession;
 import com.gcong.io.packet.Packet;
 import com.gcong.io.packethandler.HttpHandler;
@@ -53,8 +55,12 @@ public class DefaultAppContext implements AppContext {
 			//如果service带有注解，利用javassist工具，让service类动态实现HttpHandler接口，并实现接口的handle方法
 			if(opHandler.TYPE() == OPHandler.HTTP) {
 				clazz = this.generateHttpHandlerClass(clazz, opcodes);
+			} else if(opHandler.TYPE() == OPHandler.EVENT) {
+				clazz = this.generateEventListenerClass(clazz, OPHandler.EVENT);
+			} else if(opHandler.TYPE() == OPHandler.HTTP_EVENT) {
+				clazz = this.generateHttpHandlerClass(clazz, opcodes);
+				clazz = this.generateEventListenerClass(clazz, OPHandler.HTTP_EVENT);
 			}
-			
 		}
 		
 		Object o = clazz.newInstance();
@@ -88,7 +94,7 @@ public class DefaultAppContext implements AppContext {
 		services.put(inter, service);
 	}
 	/**
-	 * 利用已有的class构建HTTPHandler类
+	 * 添加HTTPHandler增强
 	 */
 	@SuppressWarnings("rawtypes")
 	private Class generateHttpHandlerClass(Class clazz, List<Short> opcodes) throws Exception{
@@ -145,8 +151,77 @@ public class DefaultAppContext implements AppContext {
 			return clazz;
 		}
 	}
-	
-	
+	/**
+	 * 添加EventListener增强
+	 * @return
+	 */
+	@SuppressWarnings("rawtypes")
+	private Class generateEventListenerClass(Class clazz, int OpType) throws Exception{
+		
+		Map<Integer, String> eventMethods = new TreeMap<Integer, String>();
+		Class targetClazz = null;
+		if(OpType == OPHandler.EVENT) {
+			targetClazz = clazz;
+		} else if(OpType == OPHandler.HTTP_EVENT) {
+			targetClazz = (Class)clazz.getGenericSuperclass();
+		}
+		//提取class中的事件处理方法
+		Method[] methods = targetClazz.getDeclaredMethods();
+		for(Method method : methods) {
+			OPEvent event = method.getAnnotation(OPEvent.class);
+			if(event != null) {
+				int eventCode = event.eventCode();
+				eventMethods.put(eventCode, method.getName());
+			}
+		}
+		
+		if(eventMethods.size() != 0) {
+			ClassPool pool = ClassPool.getDefault();
+			CtClass oldClass = pool.get(clazz.getName());
+			CtClass eventListener = pool.makeClass(
+					oldClass.getName()+"$ProxyEvent", oldClass);
+			CtClass eventInterface = pool.get(EventListener.class.getName());
+			//实现接口
+			eventListener.addInterface(eventInterface);
+			//实现接口方法
+			StringBuilder sb1 = new StringBuilder("public int[] getEventTypes() {");
+			sb1.append("return new int[]{");
+			int i = 0;
+			for(int key : eventMethods.keySet()) {
+				i++;
+				if(eventMethods.keySet().size() == i) {
+					sb1.append(key);
+				} else {
+					sb1.append(key+",");
+				}
+			}
+			sb1.append("};}");
+			
+			StringBuilder sb2 = new StringBuilder(
+					"public void handleEvent(com.gcong.event.Event event) {");
+			sb2.append("switch(event.type) {");
+			Iterator<Map.Entry<Integer, String>> it = eventMethods.entrySet().iterator();
+			Map.Entry<Integer, String> entry = null;
+			while(it.hasNext()) {
+				entry = it.next();
+				if(entry != null) {
+					sb2.append("case ").append(entry.getKey()).append(":");
+					sb2.append(entry.getValue()).append("(event);");
+					sb2.append("break;");
+				}
+			}
+			sb2.append("}");
+			sb2.append("}");
+			
+			CtMethod method1 = CtMethod.make(sb1.toString(), eventListener);
+			eventListener.addMethod(method1);
+			CtMethod method2 = CtMethod.make(sb2.toString(), eventListener);
+			eventListener.addMethod(method2);
+			return eventListener.toClass();
+		} else {
+			return clazz;
+		}
+	}
 	
 	public void shutdown() {
 		Object[] ss = new Object[services.size()];
